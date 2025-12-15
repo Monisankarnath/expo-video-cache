@@ -1,0 +1,43 @@
+{
+  "name": "expo-video-cache",
+  "version": "0.1.0",
+  "description": "IOS HLS cache with expo-video",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "scripts": {
+    "build": "expo-module build",
+    "clean": "expo-module clean",
+    "lint": "expo-module lint",
+    "test": "expo-module test",
+    "prepare": "expo-module prepare",
+    "prepublishOnly": "expo-module prepublishOnly",
+    "expo-module": "expo-module",
+    "open:ios": "xed example/ios",
+    "open:android": "open -a \"Android Studio\" example/android"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "expo-video-cache",
+    "ExpoVideoCache"
+  ],
+  "repository": "https://github.com/Monisankarnath/expo-video-cache",
+  "bugs": {
+    "url": "https://github.com/Monisankarnath/expo-video-cache/issues"
+  },
+  "author": "Monisankar Nath <monisankar.nath161998@gmail.com> (https://github.com/Monisankarnath)",
+  "license": "MIT",
+  "homepage": "https://github.com/Monisankarnath/expo-video-cache#readme",
+  "dependencies": {},
+  "devDependencies": {
+    "@types/react": "~19.1.0",
+    "expo-module-scripts": "^5.0.8",
+    "expo": "^54.0.27",
+    "react-native": "0.81.5"
+  },
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

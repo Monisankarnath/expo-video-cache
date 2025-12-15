@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android", "web"],
+  "apple": {
+    "modules": ["ExpoVideoCacheModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.videocache.ExpoVideoCacheModule"]
+  }
+}
