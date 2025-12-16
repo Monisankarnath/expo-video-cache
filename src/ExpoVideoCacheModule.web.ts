@@ -1,15 +1,14 @@
-import { registerWebModule, NativeModule } from 'expo';
+import { registerWebModule, NativeModule } from "expo";
 
-import { ExpoVideoCacheModuleEvents } from './ExpoVideoCache.types';
-
-class ExpoVideoCacheModule extends NativeModule<ExpoVideoCacheModuleEvents> {
-  PI = Math.PI;
-  async setValueAsync(value: string): Promise<void> {
-    this.emit('onChange', { value });
+class ExpoVideoCacheModule extends NativeModule {
+  async startServer(port: number): Promise<void> {
+    console.warn("ExpoHlsCache: HLS Proxying is not supported on Web.");
   }
-  hello() {
-    return 'Hello world! 👋';
+
+  convertUrl(url: string, port: number): string {
+    console.warn("ExpoHlsCache: URL conversion is not supported on Web.");
+    return url; // Return original URL so web playback doesn't crash
   }
 }
 
-export default registerWebModule(ExpoVideoCacheModule, 'ExpoVideoCacheModule');
+export default registerWebModule(ExpoVideoCacheModule, "ExpoVideoCache");

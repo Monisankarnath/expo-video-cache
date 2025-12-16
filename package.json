@@ -18,6 +18,10 @@
   "keywords": [
     "react-native",
     "expo",
+    "hls",
+    "expo-video",
+    "react-native-video",
+    "expo-av",
     "expo-video-cache",
     "ExpoVideoCache"
   ],
@@ -28,16 +32,17 @@
   "author": "Monisankar Nath <monisankar.nath161998@gmail.com> (https://github.com/Monisankarnath)",
   "license": "MIT",
   "homepage": "https://github.com/Monisankarnath/expo-video-cache#readme",
-  "dependencies": {},
   "devDependencies": {
-    "@types/react": "~19.1.0",
-    "expo-module-scripts": "^5.0.8",
-    "expo": "^54.0.27",
+    "@types/react": "19.1.0",
+    "expo": "54.0.27",
+    "expo-module-scripts": "5.0.8",
+    "expo-video": "3.0.15",
     "react-native": "0.81.5"
   },
   "peerDependencies": {
     "expo": "*",
     "react": "*",
-    "react-native": "*"
+    "react-native": "*",
+    "expo-video": "*"
   }
 }

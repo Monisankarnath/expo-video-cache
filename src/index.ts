@@ -1,5 +1,9 @@
-// Reexport the native module. On web, it will be resolved to ExpoVideoCacheModule.web.ts
-// and on native platforms to ExpoVideoCacheModule.ts
-export { default } from './ExpoVideoCacheModule';
-export { default as ExpoVideoCacheView } from './ExpoVideoCacheView';
-export * from  './ExpoVideoCache.types';
+import ExpoVideoCacheModule from "./ExpoVideoCacheModule";
+
+export function startServer(port: number): Promise<void> {
+  return ExpoVideoCacheModule.startServer(port);
+}
+
+export function convertUrl(url: string, port: number): string {
+  return ExpoVideoCacheModule.convertUrl(url, port);
+}
