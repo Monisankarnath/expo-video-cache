@@ -26,4 +26,5 @@ Pod::Spec.new do |s|
   }
 
   s.source_files = "**/*.{h,m,mm,swift,hpp,cpp}"
+  s.dependency 'Swifter', '~> 1.5.0'
 end
