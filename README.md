@@ -4,6 +4,15 @@ A highly efficient, local proxy server for caching **HLS (HTTP Live Streaming)**
 
 This module is designed to work as an add-on for [`expo-video`](https://docs.expo.dev/versions/latest/sdk/video/). While `expo-video` (and the underlying AVPlayer/ExoPlayer) handles standard `.mp4` caching and Android caching natively, iOS requires a local proxy to effectively cache HLS streams (`.m3u8`, `.ts`, fMP4) for offline playback.
 
+## ❓ Why use this?
+
+Starting with **Expo SDK 53**, the `expo-video` library introduced a native `useCaching` property.
+
+- ✅ **Native `expo-video` caching works great for:** Standard `.mp4` files and Android (ExoPlayer).
+- ❌ **It falls short on:** **HLS (.m3u8) on iOS**. AVPlayer does not natively support simple caching for HLS streams because they consist of hundreds of tiny `.ts` files and manifests.
+
+**This library is specifically engineered to fill that gap.** It creates a local proxy to handle the complex HLS file structure, allowing you to cache streams on iOS just as easily as MP4s.
+
 ## 🚀 Features
 
 - **iOS HLS Support:** Caches complex HLS playlists, including standard MPEG-TS and modern Fragmented MP4 (fMP4) streams (Netflix/Disney+ style).
@@ -15,6 +24,19 @@ This module is designed to work as an add-on for [`expo-video`](https://docs.exp
 
 ```bash
 npx expo install expo-video-cache
+```
+
+Alternative package managers:
+
+```bash
+# npm
+npm install expo-video-cache
+
+# yarn
+yarn add expo-video-cache
+
+# pnpm
+pnpm add expo-video-cache
 ```
 
 ## 🛠 Usage
