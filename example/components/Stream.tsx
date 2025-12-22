@@ -11,7 +11,6 @@ import {
 import VideoItem from "./VideoItem";
 import { convertUrl } from "../utils/videoCache";
 
-// A list of sample videos to populate our feed.
 const videoSources: VideoSource[] = [
   {
     uri: convertUrl(
@@ -26,7 +25,6 @@ const videoSources: VideoSource[] = [
   },
 ];
 
-// Helper function to safely extract the URI from a VideoSource
 const getUriFromSource = (source: VideoSource): string | null => {
   if (typeof source === "string") {
     return source;
