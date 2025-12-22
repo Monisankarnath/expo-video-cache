@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, Button, StyleSheet, Platform } from "react-native";
-import * as VideoCache from "../../src/index";
+import * as videoCache from "../utils/videoCache";
 
 let port = 9000;
 let testURL =
@@ -13,10 +13,10 @@ export default function TestVideoCache() {
   const testModule = async () => {
     try {
       console.log(`JS: Starting Server on ${port}...`);
-      await VideoCache.startServer(port);
+      await videoCache.startServer(port);
 
       // 1. Convert
-      const localUrl = VideoCache.convertUrl(testURL, port);
+      const localUrl = videoCache.convertUrl(testURL);
       console.log("JS: Local URL is:", localUrl);
       setConvertedUrl(localUrl);
 

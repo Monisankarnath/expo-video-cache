@@ -6,6 +6,7 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
+    "clean": "expo prebuild --clean",
     "web": "expo start --web"
   },
   "dependencies": {
