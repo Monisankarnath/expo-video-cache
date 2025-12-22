@@ -36,13 +36,11 @@
     "@types/react": "19.1.0",
     "expo": "54.0.27",
     "expo-module-scripts": "5.0.8",
-    "expo-video": "3.0.15",
     "react-native": "0.81.5"
   },
   "peerDependencies": {
     "expo": "*",
     "react": "*",
-    "react-native": "*",
-    "expo-video": "*"
+    "react-native": "*"
   }
 }

@@ -2,7 +2,7 @@
 
 A highly efficient, local proxy server for caching **HLS (HTTP Live Streaming)** video content on iOS.
 
-This module is designed to work as an add-on for [`expo-video`](https://docs.expo.dev/versions/latest/sdk/video/). While `expo-video` (and the underlying AVPlayer/ExoPlayer) handles standard `.mp4` caching and Android caching natively, iOS requires a local proxy to effectively cache HLS streams (`.m3u8`, `.ts`, fMP4) for offline playback.
+This module is designed to work as an add-on for [`expo-video`](https://docs.expo.dev/versions/latest/sdk/video/). While `expo-video` (and the underlying AVPlayer/ExoPlayer) handles standard `.mp4` caching and HLS caching in Android natively, iOS requires a local proxy to effectively cache HLS streams (`.m3u8`, `.ts`, `fMP4`) for offline playback.
 
 ## ❓ Why use this?
 
@@ -203,7 +203,3 @@ Remember that `VideoCache.convertUrl(url)` returns the **original** URL on Andro
 ## 📄 License
 
 MIT
-
-```
-
-```
