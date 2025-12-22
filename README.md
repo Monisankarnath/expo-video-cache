@@ -13,9 +13,9 @@ This module is designed to work as an add-on for [`expo-video`](https://docs.exp
 
 ## 📦 Installation
 
-````bash
+```bash
 npx expo install expo-video-cache
-
+```
 
 ## 🛠 Usage
 
@@ -24,8 +24,8 @@ This module works by spinning up a tiny local web server on your device. You mus
 ### 1. Import the module
 
 ```typescript
-import * as VideoCache from 'expo-video-cache';
-````
+import * as VideoCache from "expo-video-cache";
+```
 
 ### 2. Start the Server
 
@@ -41,8 +41,7 @@ await VideoCache.startServer(9000, 1024 * 1024 * 1024);
 Before passing a URL to your video player, convert it. If the content is cached, it returns a local `http://127.0.0.1...` URL. If not, it proxies the request to download and cache it.
 
 ```typescript
-const originalUrl =
-  "[https://example.com/stream.m3u8](https://example.com/stream.m3u8)";
+const originalUrl = "https://example.com/stream.m3u8";
 const sourceUrl = VideoCache.convertUrl(originalUrl);
 
 // Pass 'sourceUrl' to your player
@@ -52,20 +51,22 @@ const sourceUrl = VideoCache.convertUrl(originalUrl);
 
 You can clear the cache manually if needed (e.g., via a settings screen).
 
-````typescript
+```typescript
 await VideoCache.clearCache();
+```
 
 ## 💡 Complete Example
 
 Here is how to integrate it with `expo-video`.
 
 ```tsx
-import { useEffect, useState } from 'react';
-import { View, Text, Platform, StyleSheet } from 'react-native';
-import { VideoView, useVideoPlayer } from 'expo-video';
-import * as VideoCache from 'expo-video-cache';
+import { useEffect, useState } from "react";
+import { View, Text, Platform, StyleSheet } from "react-native";
+import { VideoView, useVideoPlayer } from "expo-video";
+import * as VideoCache from "expo-video-cache";
 
-const STREAM_URL = '[https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8](https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8)';
+const STREAM_URL =
+  "[https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8](https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8)";
 
 export default function VideoScreen() {
   const [isServerReady, setServerReady] = useState(false);
@@ -88,35 +89,38 @@ export default function VideoScreen() {
   // - Android: Returns original URL. Enable native caching (ExoPlayer handles it).
   const videoSource = {
     uri: isServerReady ? VideoCache.convertUrl(STREAM_URL) : "",
-    useCaching: Platform.OS === 'android',
+    useCaching: Platform.OS === "android",
   };
 
-  const player = useVideoPlayer(isServerReady ? videoSource : null, (player) => {
-    player.loop = true;
-    player.play();
-  });
+  const player = useVideoPlayer(
+    isServerReady ? videoSource : null,
+    (player) => {
+      player.loop = true;
+      player.play();
+    }
+  );
 
   if (!isServerReady) {
-    return <View style={styles.center}><Text>Initializing Cache...</Text></View>;
+    return (
+      <View style={styles.center}>
+        <Text>Initializing Cache...</Text>
+      </View>
+    );
   }
 
   return (
     <View style={styles.container}>
-      <VideoView
-        style={styles.video}
-        player={player}
-        allowsFullscreen
-      />
+      <VideoView style={styles.video} player={player} allowsFullscreen />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000', justifyContent: 'center' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  video: { width: '100%', height: 300 },
+  container: { flex: 1, backgroundColor: "#000", justifyContent: "center" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  video: { width: "100%", height: 300 },
 });
-````
+```
 
 ## 🧩 Advanced Usage: Vertical Video Feed
 
@@ -131,8 +135,9 @@ If you are building a vertical feed (like TikTok/Reels) using `FlatList`, you mu
 const videoSource = {
   uri: convertUrl(hlsUrl),
   // ⚠️ Important: Disable native caching on iOS to avoid conflicts with the proxy
-  useCaching: Platform.OS === 'android',
+  useCaching: Platform.OS === "android",
 };
+```
 
 ## 📱 Platform Compatibility
 
@@ -176,4 +181,7 @@ Remember that `VideoCache.convertUrl(url)` returns the **original** URL on Andro
 ## 📄 License
 
 MIT
+
+```
+
 ```
