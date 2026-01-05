@@ -36,3 +36,15 @@ export function startServer(
 export function convertUrl(url: string, isCacheable?: boolean): string {
   return ExpoVideoCacheModule.convertUrl(url, isCacheable);
 }
+
+/**
+ * Clears all cached video files from disk.
+ *
+ * - **iOS:** Deletes files from the local proxy cache directory.
+ * - **Android:** No-op (or implementation specific if expanded).
+ *
+ * @returns A promise that resolves when the cache has been cleared.
+ */
+export function clearCache(): Promise<void> {
+  return ExpoVideoCacheModule.clearCache();
+}

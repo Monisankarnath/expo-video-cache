@@ -7,9 +7,13 @@ import {
   StyleSheet,
   View,
   ViewToken,
+  TouchableOpacity,
+  Text,
+  Alert,
+  SafeAreaView,
 } from "react-native";
 import VideoItem from "./VideoItem";
-import { convertUrl } from "../utils/videoCache";
+import { convertUrl, clearCache } from "../utils/videoCache";
 
 const videoSources: VideoSource[] = [
   {
@@ -65,6 +69,16 @@ export default function Stream() {
     }
   };
 
+  const handleClearCache = async () => {
+    try {
+      await clearCache();
+      Alert.alert("Success", "Cache cleared successfully!");
+    } catch (error) {
+      console.error("Failed to clear cache:", error);
+      Alert.alert("Error", "Failed to clear cache.");
+    }
+  };
+
   return (
     <View style={styles.container} onLayout={onLayout}>
       {listHeight > 0 && (
@@ -96,6 +110,11 @@ export default function Stream() {
           showsVerticalScrollIndicator={false}
         />
       )}
+      <SafeAreaView style={styles.controls}>
+        <TouchableOpacity style={styles.button} onPress={handleClearCache}>
+          <Text style={styles.buttonText}>Clear Cache</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
     </View>
   );
 }
@@ -104,5 +123,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#000",
+  },
+  controls: {
+    position: "absolute",
+    top: 50,
+    right: 20,
+    zIndex: 100,
+  },
+  button: {
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  buttonText: {
+    color: "#000",
+    fontWeight: "bold",
+    fontSize: 14,
   },
 });
