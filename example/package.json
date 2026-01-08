@@ -10,6 +10,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@react-native-community/netinfo": "11.4.1",
     "expo": "54.0.29",
     "expo-video": "3.0.15",
     "react": "19.1.0",

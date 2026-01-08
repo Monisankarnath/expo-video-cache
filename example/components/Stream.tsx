@@ -1,4 +1,4 @@
-import { VideoSource } from "expo-video";
+import { clearVideoCacheAsync, VideoSource } from "expo-video";
 import React, { useRef, useState } from "react";
 import {
   FlatList,
@@ -71,11 +71,22 @@ export default function Stream() {
 
   const handleClearCache = async () => {
     try {
-      await clearCache();
-      Alert.alert("Success", "Cache cleared successfully!");
+      clearVideoCacheAsync()
+        .then(() => {
+          console.log("expo video cache cleared successfully!");
+        })
+        .catch((error) => {
+          console.error("Failed to clear expo video cache:", error);
+        });
+      clearCache()
+        .then(() => {
+          console.log("native video cache cleared successfully!");
+        })
+        .catch((error) => {
+          console.error("Failed to clear native video cache:", error);
+        });
     } catch (error) {
       console.error("Failed to clear cache:", error);
-      Alert.alert("Error", "Failed to clear cache.");
     }
   };
 

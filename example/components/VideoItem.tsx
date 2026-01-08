@@ -1,6 +1,7 @@
 import { useVideoPlayer, VideoSource, VideoView } from "expo-video";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Pressable, StyleSheet, useWindowDimensions } from "react-native";
+import NetInfo from "@react-native-community/netinfo";
 
 type Props = {
   source: VideoSource;
@@ -10,31 +11,40 @@ type Props = {
 
 export default function VideoItem({ source, isActive, height }: Props) {
   const [isMuted, setIsMuted] = useState(true);
+  const { width } = useWindowDimensions();
+  const [isOffline, setIsOffline] = useState(false);
   const player = useVideoPlayer(source, (player) => {
     player.loop = true;
+    player.muted = isMuted;
   });
-
+  const replacePlayer = () => {
+    player.replace(source);
+    if (isActive) player.play();
+  };
   useEffect(() => {
     player.muted = isMuted;
   }, [isMuted, player]);
 
-  const isMounted = useRef(false);
   useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (isActive && isMounted.current) {
+    if (isActive) {
       player.play();
     } else {
       player.pause();
     }
   }, [isActive, player]);
 
-  const { width } = useWindowDimensions();
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      const isConnected = state.isConnected ?? false;
+      if (isOffline && isConnected) {
+        console.log("Connection restored, replacing player...");
+        replacePlayer();
+      }
+
+      setIsOffline(!isConnected);
+    });
+    return () => unsubscribe();
+  }, [isOffline, isActive, player, source]);
 
   return (
     <Pressable
