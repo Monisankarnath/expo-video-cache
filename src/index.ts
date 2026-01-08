@@ -26,7 +26,7 @@ export function startServer(
  *
  * You should pass the return value of this function to your `<Video />` component's source.
  *
- * - **iOS:** Returns a localhost URL (e.g., `http://127.0.0.1:9000/proxy?url=...`).
+ * - **iOS:** Returns a localhost URL (e.g., `http://127.0.0.1:9000/proxy?url=...`) if the server is running, otherwise returns the original URL.
  * - **Android/Web:** Returns the original remote URL unchanged.
  *
  * @param url - The remote URL of the video asset (e.g., HLS `.m3u8` or standard `.mp4`).

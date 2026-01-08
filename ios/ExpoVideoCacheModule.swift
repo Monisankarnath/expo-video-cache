@@ -75,11 +75,17 @@ public class ExpoVideoCacheModule: Module {
     /// - Parameters:
     ///   - url: The original remote URL string.
     ///   - isCacheable: Optional flag to bypass the proxy. Defaults to `true`.
-    /// - Returns: A `localhost` URL pointing to the proxy, or the original URL if caching is disabled.
+    /// - Returns: A `localhost` URL pointing to the proxy, or the original URL if caching is disabled or server is not running.
     Function("convertUrl") { (url: String, isCacheable: Bool?) -> String in
         let shouldCache = isCacheable ?? true
         
         if !shouldCache {
+            return url
+        }
+        
+        // If the server is not running, return the original URL to prevent playback failures.
+        guard let server = self.proxyServer, server.isRunning else {
+            print("⚠️ ExpoVideoCache: Server not running. Returning original URL: \(url)")
             return url
         }
         

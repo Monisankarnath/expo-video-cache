@@ -60,7 +60,7 @@ await VideoCache.startServer(9000, 1024 * 1024 * 1024);
 
 ### 3. Convert URLs
 
-Before passing a URL to your video player, convert it. If the content is cached, it returns a local `http://127.0.0.1...` URL. If not, it proxies the request to download and cache it.
+Before passing a URL to your video player, convert it. If the server is running and caching is enabled, it returns a local `http://127.0.0.1...` URL. If the server is not running, it returns the original URL to prevent playback failures.
 
 ```typescript
 const originalUrl = "https://example.com/stream.m3u8";
