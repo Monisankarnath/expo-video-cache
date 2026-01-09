@@ -1,5 +1,6 @@
 import Foundation
 import Swifter
+import Network
 
 /// A local HTTP proxy server designed to intercept and cache video requests.
 ///
@@ -14,12 +15,30 @@ import Swifter
 internal class VideoProxyServer {
     private var server: HttpServer?
     private let storage: VideoCacheStorage
-    private let port: Int
+    
+    /// The port on which the server listens.
+    internal let port: Int
+    
+    /// Monitors network connectivity to prevent failed background download attempts.
+    private let monitor = NWPathMonitor()
+    private var isConnected: Bool = true
+    
+    /// A circuit breaker flag that trips when a background download fails due to a network error.
+    /// This prevents the queue from overwhelming the system with requests during outages.
+    private var isOfflineCircuitBreakerOpen: Bool = false
     
     /// Indicates whether the underlying HTTP server is currently accepting connections.
     var isRunning: Bool {
         return server?.operating ?? false
     }
+
+    /// A custom URLSession configured to limit concurrent background downloads.
+    private lazy var backgroundSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.httpMaximumConnectionsPerHost = 4
+        config.timeoutIntervalForRequest = 30.0
+        return URLSession(configuration: config)
+    }()
 
     /// Initializes the proxy server.
     ///
@@ -29,6 +48,31 @@ internal class VideoProxyServer {
     init(port: Int, maxCacheSize: Int) {
         self.port = port
         self.storage = VideoCacheStorage(maxCacheSize: maxCacheSize)
+        
+        self.monitor.pathUpdateHandler = { [weak self] path in
+            guard let self = self else { return }
+            let isSatisfied = (path.status == .satisfied)
+            self.isConnected = isSatisfied
+            
+            if isSatisfied {
+                self.isOfflineCircuitBreakerOpen = false
+                print("🛜 ExpoVideoCache: Network is ONLINE")
+            } else {
+                print("🚫 ExpoVideoCache: Network is OFFLINE")
+            }
+        }
+        self.monitor.start(queue: DispatchQueue.global(qos: .background))
+    }
+    
+    deinit {
+        monitor.cancel()
+    }
+
+    // MARK: - Public API
+    
+    /// Checks if a specific URL is already cached on disk.
+    func isCached(url: String) -> Bool {
+        return storage.exists(for: url)
     }
 
     /// Configures routes and starts the HTTP server.
@@ -38,106 +82,145 @@ internal class VideoProxyServer {
     ///
     /// - Throws: An error if the socket cannot be bound to the specified port.
     func start() throws {
-        // Idempotency check: Do not restart if already running.
         if let current = server, current.operating { return }
         
         let server = HttpServer()
         
-        // Define the main proxy handler.
-        // Format: http://127.0.0.1:{port}/proxy?url={encoded_remote_url}
         server["/proxy"] = { [weak self] request in
             guard let self = self else { return .internalServerError }
             
-            // Validate the 'url' query parameter.
             guard let urlString = request.queryParams.first(where: { $0.0 == "url" })?.1,
                   let remoteUrl = URL(string: urlString) else {
                 return .notFound
             }
             
-            // MARK: Phase 1 - Data Retrieval
-            // Attempt to retrieve data from the disk cache. If missing, download synchronously
-            // from the remote source and write to disk immediately.
-            var rawData: Data? = self.storage.getCachedData(for: urlString)
-            let isCacheHit = (rawData != nil)
+            let isManifest = urlString.contains(".m3u8")
             
-            if isCacheHit {
-                print("🟢 Cache HIT: \(urlString)")
-            } else {
-                print("🟡 Cache MISS (Downloading): \(urlString)")
-                // Note: We intentionally block the request thread here to download.
-                // Swifter handles requests on concurrent threads, so this does not block the main UI.
-                if let downloadedData = try? Data(contentsOf: remoteUrl) {
-                    self.storage.save(data: downloadedData, for: urlString)
-                    rawData = downloadedData
+            // Check for cache existence without loading file data into memory.
+            let exists = self.storage.exists(for: urlString)
+            
+            // If the file exists and is a video segment (not a manifest), serve it directly
+            // using a file stream. This supports byte-range requests efficiently.
+            if exists && !isManifest {
+                guard let fileSize = self.storage.getFileSize(for: urlString) else { return .notFound }
+                let filePath = self.storage.getFilePath(for: urlString)
+                let mimeType = self.getMimeType(for: urlString)
+                let rangeHeader = request.headers["range"]
+                
+                return self.serveFileStream(filePath: filePath, fileSize: fileSize, mimeType: mimeType, rangeHeader: rangeHeader)
+            }
+
+            // Fallback to loading data into memory. This path is used for:
+            // 1. Manifest files (which need to be rewritten).
+            // 2. Cache misses (downloads).
+            var rawData: Data? = self.storage.getCachedData(for: urlString)
+            
+            if rawData == nil {
+                // If offline, fail immediately to avoid timeouts.
+                if !self.isConnected { return .notFound }
+                
+                let semaphore = DispatchSemaphore(value: 0)
+                var downloadedData: Data?
+                
+                let session = URLSession(configuration: .default)
+                let task = session.dataTask(with: remoteUrl) { data, response, error in
+                    if let error = error {
+                        print("❌ ExpoVideoCache: Download error: \(error.localizedDescription)")
+                    } else if let data = data, !data.isEmpty {
+                        downloadedData = data
+                    }
+                    semaphore.signal()
+                }
+                
+                task.resume()
+                
+                // Wait up to 10 seconds for the blocking download (usually manifests).
+                if semaphore.wait(timeout: .now() + 10.0) == .timedOut {
+                    task.cancel()
+                    print("❌ ExpoVideoCache: Download timeout for \(urlString)")
+                }
+                
+                if let data = downloadedData {
+                    self.storage.save(data: data, for: urlString)
+                    rawData = data
+                } else if let stale = self.storage.getCachedData(for: urlString) {
+                    rawData = stale
                 }
             }
             
-            guard let data = rawData else {
-                print("❌ Failed to get data: \(urlString)")
-                return .notFound
-            }
+            guard let data = rawData, !data.isEmpty else { return .notFound }
 
-            // MARK: Phase 2 - HLS Manifest Processing
-            // If the content is an HLS playlist (.m3u8), we must rewrite the internal links.
-            // Even if the file was cached, we rewrite it dynamically to ensure the links
-            // point to the current `self.port`, which may differ between app sessions.
-            let isManifest = urlString.contains(".m3u8")
+            // Rewrite HLS manifests to point to the local proxy.
             var dataToSend = data
-            
             if isManifest {
-                if let content = String(data: data, encoding: .utf8) {
+                if let content = String(data: data, encoding: .utf8), !content.isEmpty {
                     let rewritten = self.rewriteManifest(content, originalUrl: remoteUrl)
-                    if let rewrittenBytes = rewritten.data(using: .utf8) {
-                        dataToSend = rewrittenBytes
+                    if let rewrittenBytes = rewritten.data(using: .utf8), !rewrittenBytes.isEmpty {
+                        return .raw(200, "OK", ["Content-Type": "application/vnd.apple.mpegurl"], { writer in
+                            try? writer.write(rewrittenBytes)
+                        })
                     }
                 }
             }
-
-            // MARK: Phase 3 - Content Delivery & Byte Ranges
-            // Video players often request partial data (e.g., "bytes=0-1024") for seeking.
-            // We must support HTTP 206 Partial Content to function correctly as a video source.
-            let mimeType = self.getMimeType(for: urlString)
-            let rangeHeader = request.headers["range"]
             
-            if let rangeHeader = rangeHeader, let range = self.parseRange(rangeHeader, fileSize: dataToSend.count) {
-                let slicedData = dataToSend.subdata(in: range)
-                let contentRange = "bytes \(range.lowerBound)-\(range.upperBound - 1)/\(dataToSend.count)"
-                
-                let headers = [
-                    "Content-Type": mimeType,
-                    "Content-Length": String(slicedData.count),
-                    "Content-Range": contentRange,
-                    "Accept-Ranges": "bytes",
-                    "Access-Control-Allow-Origin": "*"
-                ]
-                
-                return .raw(206, "Partial Content", headers, { writer in
-                    try? writer.write(slicedData)
-                })
-            }
-            
-            // Standard Full Content Response (200 OK)
-            let headers = [
-                "Content-Type": mimeType,
-                "Content-Length": String(dataToSend.count),
-                "Accept-Ranges": "bytes",
-                "Access-Control-Allow-Origin": "*"
-            ]
-            
-            return .raw(200, "OK", headers, { writer in
-                try? writer.write(dataToSend)
-            })
+            return .ok(.data(dataToSend))
         }
 
         try server.start(UInt16(port), forceIPv4: true)
         self.server = server
         
-        // Perform cleanup (LRU Pruning) in the background to avoid delaying startup.
-        DispatchQueue.global(qos: .background).async {
-            self.storage.prune()
+        // Delay cache pruning to avoid disk I/O contention during app startup/playback.
+        DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 10.0) { [weak self] in
+            self?.storage.prune()
         }
         
         print("✅ ExpoVideoCache: Server running on port \(port)")
+    }
+    
+    /// Efficiently serves a file or a byte range using FileHandle.
+    ///
+    /// This method avoids loading the entire file into memory, which is critical for
+    /// performance with fragmented MP4 files that make frequent small byte-range requests.
+    private func serveFileStream(filePath: URL, fileSize: UInt64, mimeType: String, rangeHeader: String?) -> HttpResponse {
+        guard let fileHandle = try? FileHandle(forReadingFrom: filePath) else {
+            return .internalServerError
+        }
+        
+        // Handle Byte Range Request (e.g., "bytes=0-100")
+        if let rangeHeader = rangeHeader, let range = self.parseRange(rangeHeader, fileSize: Int(fileSize)) {
+            let length = range.upperBound - range.lowerBound
+            
+            try? fileHandle.seek(toOffset: UInt64(range.lowerBound))
+            let data = fileHandle.readData(ofLength: length)
+            try? fileHandle.close()
+            
+            let contentRange = "bytes \(range.lowerBound)-\(range.upperBound - 1)/\(fileSize)"
+            
+            let headers = [
+                "Content-Type": mimeType,
+                "Content-Length": String(data.count),
+                "Content-Range": contentRange,
+                "Accept-Ranges": "bytes",
+                "Access-Control-Allow-Origin": "*"
+            ]
+            
+            return .raw(206, "Partial Content", headers, { writer in
+                try? writer.write(data)
+            })
+        }
+        
+        // Handle Standard Request (No Range)
+        let data = fileHandle.readDataToEndOfFile()
+        try? fileHandle.close()
+        
+        return .raw(200, "OK", [
+            "Content-Type": mimeType,
+            "Content-Length": String(fileSize),
+            "Accept-Ranges": "bytes",
+            "Access-Control-Allow-Origin": "*"
+        ], { writer in
+            try? writer.write(data)
+        })
     }
     
     /// Stops the server and releases resources.
@@ -151,37 +234,46 @@ internal class VideoProxyServer {
         storage.clearAll()
     }
     
-    // MARK: - Helper Functions
+    // MARK: - Background Processing
     
-    /// Parses the HTTP Range header to determine which bytes to serve.
+    /// Initiates a background download for a file that is not yet cached.
     ///
-    /// - Parameters:
-    ///   - header: The raw header string (e.g., "bytes=0-500").
-    ///   - fileSize: The total size of the file.
-    /// - Returns: A Swift `Range<Int>` representing the requested bytes, or `nil` if invalid.
-    private func parseRange(_ header: String, fileSize: Int) -> Range<Int>? {
-        let components = header.replacingOccurrences(of: "bytes=", with: "").components(separatedBy: "-")
-        guard components.count == 2 else { return nil }
+    /// This function implements the "Hybrid Strategy": files not found in the cache
+    /// are served directly from the remote URL to the player, while this method
+    /// concurrently downloads them for future playback.
+    private func downloadInBackground(url: String) {
+        if !isConnected || isOfflineCircuitBreakerOpen { return }
+        if storage.exists(for: url) { return }
         
-        let start = Int(components[0]) ?? 0
-        // If the end byte is missing, defaults to the last byte of the file.
-        var end = Int(components[1]) ?? (fileSize - 1)
+        guard let remoteUrl = URL(string: url) else { return }
         
-        if end >= fileSize { end = fileSize - 1 }
-        if start > end { return nil }
-        
-        return start..<(end + 1)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            
+            if self.storage.exists(for: url) { return }
+            if self.isOfflineCircuitBreakerOpen { return }
+            
+            let task = self.backgroundSession.dataTask(with: remoteUrl) { [weak self] data, response, error in
+                guard let self = self else { return }
+                
+                if let error = error as NSError? {
+                    // Stop queuing further downloads if the network is confirmed offline.
+                    if error.code == -1009 {
+                        self.isOfflineCircuitBreakerOpen = true
+                        self.isConnected = false
+                    }
+                    return
+                }
+                
+                guard let data = data, !data.isEmpty else { return }
+                self.storage.save(data: data, for: url)
+            }
+            task.resume()
+        }
     }
     
-    /// Rewrites URLs inside an M3U8 manifest file.
-    ///
-    /// This ensures that when the player requests the next segment or playlist variant,
-    /// that request is also routed through this proxy.
-    ///
-    /// - Parameters:
-    ///   - content: The raw string content of the manifest.
-    ///   - originalUrl: The base URL of the manifest (used to resolve relative paths).
-    /// - Returns: The modified manifest string.
+    // MARK: - Rewriting Logic
+    
     private func rewriteManifest(_ content: String, originalUrl: URL) -> String {
         let lines = content.components(separatedBy: .newlines)
         var rewrittenLines: [String] = []
@@ -193,7 +285,6 @@ internal class VideoProxyServer {
                 continue
             }
             
-            // Handle specific HLS tags that contain URIs (e.g., #EXT-X-KEY:URI="...")
             if trimmed.hasPrefix("#") {
                 if trimmed.contains("URI=\"") {
                     rewrittenLines.append(rewriteHlsTag(line: line, originalUrl: originalUrl))
@@ -203,35 +294,38 @@ internal class VideoProxyServer {
                 continue
             }
             
-            // Handle standard lines (segment URLs or variant playlist URLs)
             rewrittenLines.append(rewriteLine(line: line, originalUrl: originalUrl))
         }
         return rewrittenLines.joined(separator: "\n")
     }
 
-    /// Transforms a single URL line into a proxied URL.
-    ///
-    /// Resolves relative paths against the original manifest URL before encoding.
     private func rewriteLine(line: String, originalUrl: URL) -> String {
-        var absoluteUrlString = line
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
         
-        // If the line is a relative path (e.g., "segment-1.ts"), resolve it to absolute.
-        if !line.lowercased().hasPrefix("http") {
-             if let resolvedUrl = URL(string: line, relativeTo: originalUrl) {
-                 absoluteUrlString = resolvedUrl.absoluteString
-             }
-        }
-        
-        guard let encoded = absoluteUrlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+        if trimmed.isEmpty || trimmed.hasPrefix("#") {
             return line
         }
         
-        return "http://127.0.0.1:\(self.port)/proxy?url=\(encoded)"
+        var absoluteUrlString = trimmed
+        if !trimmed.lowercased().hasPrefix("http") {
+             if let resolvedUrl = URL(string: trimmed, relativeTo: originalUrl) {
+                 absoluteUrlString = resolvedUrl.absoluteString
+             } else {
+                 return line
+             }
+        }
+        
+        if self.storage.exists(for: absoluteUrlString) {
+            guard let encoded = absoluteUrlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+                return line
+            }
+            return "http://127.0.0.1:\(self.port)/proxy?url=\(encoded)"
+        } else {
+            self.downloadInBackground(url: absoluteUrlString)
+            return absoluteUrlString
+        }
     }
 
-    /// rewriting logic for HLS tags containing URIs.
-    ///
-    /// Example: `#EXT-X-KEY:METHOD=AES-128,URI="key.php"`
     private func rewriteHlsTag(line: String, originalUrl: URL) -> String {
         let components = line.components(separatedBy: "URI=\"")
         if components.count < 2 { return line }
@@ -242,16 +336,28 @@ internal class VideoProxyServer {
         if let quoteIndex = rest.firstIndex(of: "\"") {
             let uriPart = String(rest[..<quoteIndex])
             let suffix = String(rest[rest.index(after: quoteIndex)...])
+            
             let newUri = rewriteLine(line: uriPart, originalUrl: originalUrl)
             return "\(prefix)URI=\"\(newUri)\"\(suffix)"
         }
         return line
     }
+    
+    // MARK: - Utils
+    
+    private func parseRange(_ header: String, fileSize: Int) -> Range<Int>? {
+        let components = header.replacingOccurrences(of: "bytes=", with: "").components(separatedBy: "-")
+        guard components.count == 2 else { return nil }
+        
+        let start = Int(components[0]) ?? 0
+        var end = Int(components[1]) ?? (fileSize - 1)
+        
+        if end >= fileSize { end = fileSize - 1 }
+        if start > end { return nil }
+        
+        return start..<(end + 1)
+    }
 
-    /// Determines the MIME type based on file extension.
-    ///
-    /// Correct MIME types are essential for players (especially AVPlayer) to
-    /// recognize the stream format.
     private func getMimeType(for urlString: String) -> String {
         if urlString.contains(".m3u8") { return "application/vnd.apple.mpegurl" }
         if urlString.contains(".ts") { return "video/mp2t" }

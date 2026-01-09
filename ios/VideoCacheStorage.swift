@@ -6,7 +6,7 @@ import CryptoKit
 /// This class handles all file system interactions, including:
 /// - Generating collision-resistant, filesystem-safe filenames from URLs.
 /// - Persisting video data to the `Library/Caches` directory.
-/// - Retrieving data while updating access timestamps.
+/// - Retrieving data.
 /// - Enforcing storage limits via a Least Recently Used (LRU) pruning algorithm.
 internal class VideoCacheStorage {
     private let fileManager = FileManager.default
@@ -64,33 +64,66 @@ internal class VideoCacheStorage {
     /// - Returns: A local file URL pointing to the hashed location on disk.
     func getFilePath(for urlString: String) -> URL {
         guard let data = urlString.data(using: .utf8) else {
-            // Fallback for encoding failures.
             return cacheDirectory.appendingPathComponent("unknown.bin")
         }
         
         let hash = SHA256.hash(data: data)
         let safeFilename = hash.compactMap { String(format: "%02x", $0) }.joined()
         
-        // Preserve .ts extension for HLS segments, use .bin for everything else.
-        let extensionName = urlString.lowercased().hasSuffix(".ts") ? ".ts" : ".bin"
-        return cacheDirectory.appendingPathComponent(safeFilename + extensionName)
+        var extensionName = "bin"
+        if let url = URL(string: urlString) {
+            let pathExt = url.pathExtension
+            if !pathExt.isEmpty {
+                extensionName = pathExt.components(separatedBy: "?")[0].components(separatedBy: "/")[0]
+            }
+        }
+        
+        return cacheDirectory.appendingPathComponent("\(safeFilename).\(extensionName)")
     }
 
-    /// Retrieves cached data and updates its "Last Access" timestamp.
+    /// Checks if a file exists in the cache without loading its content into memory.
     ///
-    /// This method is critical for the LRU algorithm. By "touching" the file (updating
-    /// `modificationDate`) every time it is read, we ensure that frequently accessed
-    /// files are not deleted during pruning.
+    /// - Parameter urlString: The original remote URL.
+    /// - Returns: `true` if the file exists and has content, `false` otherwise.
+    func exists(for urlString: String) -> Bool {
+        let fileUrl = getFilePath(for: urlString)
+        
+        guard fileManager.fileExists(atPath: fileUrl.path) else { return false }
+        
+        if let attr = try? fileManager.attributesOfItem(atPath: fileUrl.path),
+           let size = attr[.size] as? Int64, size > 0 {
+            return true
+        }
+        
+        return false
+    }
+    
+    /// Retrieves the file size of a cached item without loading it.
+    ///
+    /// - Parameter urlString: The original remote URL.
+    /// - Returns: The file size in bytes, or `nil` if not found.
+    func getFileSize(for urlString: String) -> UInt64? {
+        let fileUrl = getFilePath(for: urlString)
+        if let attr = try? fileManager.attributesOfItem(atPath: fileUrl.path),
+           let size = attr[.size] as? UInt64 {
+            return size
+        }
+        return nil
+    }
+
+    /// Retrieves cached data.
     ///
     /// - Parameter urlString: The original remote URL of the video.
-    /// - Returns: The cached `Data` if it exists, otherwise `nil`.
+    /// - Returns: The cached `Data` if it exists and is valid, otherwise `nil`.
     func getCachedData(for urlString: String) -> Data? {
         let fileUrl = getFilePath(for: urlString)
         
         if fileManager.fileExists(atPath: fileUrl.path) {
-            // Side Effect: Update the file's modification date to 'now'.
-            try? fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: fileUrl.path)
-            return try? Data(contentsOf: fileUrl)
+            if let data = try? Data(contentsOf: fileUrl), !data.isEmpty {
+                return data
+            } else {
+                try? fileManager.removeItem(at: fileUrl)
+            }
         }
         return nil
     }
@@ -125,7 +158,6 @@ internal class VideoCacheStorage {
             var totalSize = 0
             var files: [(url: URL, size: Int, date: Date)] = []
             
-            // 1. Aggregate current cache usage
             for url in fileUrls {
                 let values = try url.resourceValues(forKeys: Set(keys))
                 if let size = values.fileSize, let date = values.contentModificationDate {
@@ -134,15 +166,12 @@ internal class VideoCacheStorage {
                 }
             }
             
-            // 2. Short-circuit if within limits
             if totalSize < maxCacheSize { return }
             
             print("🧹 ExpoVideoCache: Pruning... Current: \(totalSize / 1024 / 1024)MB, Limit: \(maxCacheSize / 1024 / 1024)MB")
             
-            // 3. Sort files by date (Oldest -> Newest)
             files.sort { $0.date < $1.date }
             
-            // 4. Delete oldest files until we are under the limit
             for file in files {
                 try? fileManager.removeItem(at: file.url)
                 totalSize -= file.size

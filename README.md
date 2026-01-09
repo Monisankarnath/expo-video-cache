@@ -11,11 +11,12 @@ Starting with **Expo SDK 53**, the `expo-video` library introduced a native `use
 - ✅ **Native `expo-video` caching works great for:** Standard `.mp4` files and Android (ExoPlayer).
 - ❌ **It falls short on:** **HLS (.m3u8) on iOS**. AVPlayer does not natively support simple caching for HLS streams because they consist of hundreds of tiny `.ts` files and manifests.
 
-**This library is specifically engineered to fill that gap.** It creates a local proxy to handle the complex HLS file structure, allowing you to cache streams on iOS just as easily as MP4s.
+**This library is specifically engineered to fill that gap.** It creates a local proxy to intercept the video stream, rewrite manifests on the fly, and ensure every segment watched is saved to disk for instant offline replay using a hybrid strategy (direct streaming plus background caching).
 
 ## 🚀 Features
 
 - **iOS HLS Support:** Caches complex HLS playlists, including standard MPEG-TS and modern Fragmented MP4 (fMP4) streams (Netflix/Disney+ style).
+- **Hybrid Caching Strategy:** Streams directly from the origin while asynchronously caching segments via the proxy. If you've watched it once, it's cached for instant replay.
 - **Offline Playback:** Automatically rewrites manifests to serve content from the local disk when offline.
 - **Smart Pruning:** Automatically manages disk space with a configurable max cache size (LRU strategy).
 - **Zero-Config Android:** On Android, this module acts as a pass-through, relying on the native player's built-in caching capabilities.
@@ -88,7 +89,7 @@ import { VideoView, useVideoPlayer } from "expo-video";
 import * as VideoCache from "expo-video-cache";
 
 const STREAM_URL =
-  "[https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8](https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8)";
+  "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8";
 
 export default function VideoScreen() {
   const [isServerReady, setServerReady] = useState(false);
@@ -165,7 +166,7 @@ const videoSource = {
 
 | Platform    | Supported Formats      | Caching Strategy                                                                                                   |
 | :---------- | :--------------------- | :----------------------------------------------------------------------------------------------------------------- |
-| **iOS**     | HLS (.m3u8), fMP4, .ts | **Active Proxy.** Uses a local server to intercept, rewrite manifests, and cache segments to disk.                 |
+| **iOS**     | HLS (.m3u8), fMP4, .ts | **Active Proxy + Hybrid Caching.** Uses a local server to intercept, rewrite manifests, stream from origin, and cache segments to disk. |
 | **Android** | All                    | **Passthrough.** Returns the original URL unaltered. `expo-video` (ExoPlayer) handles caching natively on Android. |
 | **Web**     | -                      | **Not Supported.** Returns original URL.                                                                           |
 
@@ -175,9 +176,9 @@ const videoSource = {
 
 This module is strictly optimized for **HLS Streaming (.m3u8)**.
 
-- **Why?** The proxy downloads a requested file _completely_ to disk before serving it to the player.
-- **HLS:** Segments are small (~2MB). The download is instant, and playback is smooth.
-- **MP4:** If you try to cache a 500MB movie file, the player will show a black screen until the **entire 500MB** is downloaded.
+- **Why?** The proxy coordinates caching around HLS segments. For large monolithic MP4 files, it's better to rely on `expo-video`'s native caching instead of this proxy.
+- **HLS:** Segments are small (~2MB). Downloads are fast, and playback is smooth.
+- **MP4:** If you try to proxy a 500MB movie file through this server, the player may experience delays or black frames while data is being handled.
 - **Solution:** For standard MP4 files, use the original URL directly. `expo-video` handles MP4 caching natively.
 
 ### 2. 🏁 Start the Server Once
@@ -196,9 +197,9 @@ Remember that `VideoCache.convertUrl(url)` returns the **original** URL on Andro
 
 ## ⚠️ Limitations
 
-1.  **Large Static Files:** As mentioned above, avoid using this for non-HLS files (MP4, MKV, MOV) larger than a few MBs to avoid blocking playback.
-2.  **DRM Protected Content:** Encrypted streams (FairPlay) are **not supported**. Rewriting the manifest URLs usually breaks the digital signature verification required by DRM agents.
-3.  **Live Streams:** Caching is technically supported for Live HLS, but it is recommended strictly for **VOD (Video on Demand)**. Live streams can generate infinite segments, filling up the cache limit quickly and triggering aggressive pruning.
+1. **Large Static Files:** As mentioned above, avoid using this for non-HLS files (MP4, MKV, MOV) larger than a few MBs to avoid blocking playback.
+2. **DRM Protected Content:** Encrypted streams (FairPlay) are **not supported**. Rewriting the manifest URLs usually breaks the digital signature verification required by DRM agents.
+3. **Live Streams:** Caching is technically supported for Live HLS, but it is recommended strictly for **VOD (Video on Demand)**. Live streams can generate infinite segments, filling up the cache limit quickly and triggering aggressive pruning.
 
 ## 📄 License
 

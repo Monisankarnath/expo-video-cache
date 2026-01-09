@@ -1,5 +1,5 @@
 import { clearVideoCacheAsync, VideoSource } from "expo-video";
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useMemo } from "react";
 import {
   FlatList,
   LayoutChangeEvent,
@@ -9,26 +9,21 @@ import {
   ViewToken,
   TouchableOpacity,
   Text,
-  Alert,
   SafeAreaView,
 } from "react-native";
 import VideoItem from "./VideoItem";
 import { convertUrl, clearCache } from "../utils/videoCache";
 
-const videoSources: VideoSource[] = [
+// 1. Raw Data Definition
+// We keep this outside to prevent recreation, but we store only plain strings.
+// We do NOT call convertUrl() here to avoid the Race Condition.
+const rawVideoData = [
   {
-    uri: convertUrl(
-      "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8",
-      Platform.OS === "ios" ? true : false
-    ),
-    useCaching: Platform.OS === "android" ? true : false,
-  },
-  {
-    uri: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-    useCaching: true,
+    uri: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8",
   },
 ];
 
+// Helper to safely extract URI string from VideoSource
 const getUriFromSource = (source: VideoSource): string | null => {
   if (typeof source === "string") {
     return source;
@@ -41,10 +36,23 @@ const getUriFromSource = (source: VideoSource): string | null => {
 
 export default function Stream() {
   const [listHeight, setListHeight] = useState(0);
+
+  // 2. Dynamic Source Generation (The Fix 🛠️)
+  // This runs ONLY when the component mounts. By this time, App.tsx
+  // has already waited for startServer(), so the Native Module is ready.
+  const videoSources = useMemo(() => {
+    return rawVideoData.map((item) => ({
+      // iOS: Use Proxy | Android: Use Native Cache
+      uri: convertUrl(item.uri, Platform.OS === "ios"),
+      useCaching: Platform.OS === "android",
+    }));
+  }, []);
+
   const [activeViewableItem, setActiveViewableItem] = useState<string | null>(
     getUriFromSource(videoSources[0])
   );
 
+  // Viewability Config for TikTok-style snapping
   const viewabilityConfigCallbackPairs = useRef([
     {
       viewabilityConfig: {
@@ -71,20 +79,15 @@ export default function Stream() {
 
   const handleClearCache = async () => {
     try {
+      // Clear Expo's native cache (Android)
       clearVideoCacheAsync()
-        .then(() => {
-          console.log("expo video cache cleared successfully!");
-        })
-        .catch((error) => {
-          console.error("Failed to clear expo video cache:", error);
-        });
+        .then(() => console.log("🤖 Expo video cache cleared!"))
+        .catch((e) => console.error("Failed to clear expo cache:", e));
+
+      // Clear our custom Proxy cache (iOS)
       clearCache()
-        .then(() => {
-          console.log("native video cache cleared successfully!");
-        })
-        .catch((error) => {
-          console.error("Failed to clear native video cache:", error);
-        });
+        .then(() => console.log("🍎 Native proxy cache cleared!"))
+        .catch((e) => console.error("Failed to clear proxy cache:", e));
     } catch (error) {
       console.error("Failed to clear cache:", error);
     }
@@ -106,13 +109,14 @@ export default function Stream() {
           )}
           keyExtractor={(item) => getUriFromSource(item) ?? ""}
           pagingEnabled
-          removeClippedSubviews
-          windowSize={5}
+          removeClippedSubviews={Platform.OS === "ios"} // Safer to disable on Android if seeing black screens
+          windowSize={5} // Optimization: Keep 5 screens worth of content
           initialNumToRender={1}
           maxToRenderPerBatch={3}
           viewabilityConfigCallbackPairs={
             viewabilityConfigCallbackPairs.current
           }
+          // Optimization: Pre-calculate layout to avoid jumps
           getItemLayout={(_data, index) => ({
             length: listHeight,
             offset: listHeight * index,
@@ -121,6 +125,8 @@ export default function Stream() {
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      {/* Clear Cache Button Overlay */}
       <SafeAreaView style={styles.controls}>
         <TouchableOpacity style={styles.button} onPress={handleClearCache}>
           <Text style={styles.buttonText}>Clear Cache</Text>

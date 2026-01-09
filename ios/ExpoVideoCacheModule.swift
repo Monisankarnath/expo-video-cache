@@ -31,14 +31,11 @@ public class ExpoVideoCacheModule: Module {
       let safeMaxCacheSize = maxCacheSize ?? 1_073_741_824 // 1GB Default
       let targetPort = port ?? 9000
       
-      // Check if the server is already active to handle idempotency or conflict errors.
       if let currentServer = self.proxyServer, currentServer.isRunning {
           if self.activePort == targetPort {
               print("✅ ExpoVideoCache: Server already active on port \(targetPort)")
               return
           } else {
-              // Strict Check: Dynamic port switching during runtime is not supported
-              // to ensure consistent URL rewriting across the application lifecycle.
               throw NSError(
                   domain: "ExpoVideoCache",
                   code: 409,
@@ -47,7 +44,6 @@ public class ExpoVideoCacheModule: Module {
           }
       }
       
-      // Attempt to bind the server to the specific port.
       let newServer = VideoProxyServer(port: targetPort, maxCacheSize: safeMaxCacheSize)
       
       do {
@@ -58,9 +54,6 @@ public class ExpoVideoCacheModule: Module {
           print("✅ ExpoVideoCache: Server started on port \(targetPort)")
           
       } catch {
-          // Fail fast: We do not auto-increment ports.
-          // This ensures the JS layer always knows exactly which port is being used
-          // without needing a callback to update configuration.
           print("❌ ExpoVideoCache: Port \(targetPort) is busy.")
           throw NSError(
               domain: "ExpoVideoCache",
@@ -83,19 +76,15 @@ public class ExpoVideoCacheModule: Module {
             return url
         }
         
-        // If the server is not running, return the original URL to prevent playback failures.
         guard let server = self.proxyServer, server.isRunning else {
             print("⚠️ ExpoVideoCache: Server not running. Returning original URL: \(url)")
             return url
         }
         
-        // Ensure the query parameters are properly encoded to be passed as a query string
-        // to the proxy server.
         guard let encodedUrl = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
             return url
         }
         
-        // Relies on `self.activePort`. If the server hasn't started yet, this defaults to 9000.
         return "http://127.0.0.1:\(self.activePort)/proxy?url=\(encodedUrl)"
     }
 
@@ -107,7 +96,6 @@ public class ExpoVideoCacheModule: Module {
         if let server = self.proxyServer {
             server.clearCache()
         } else {
-            // Fallback: Access storage directly if the server instance is down.
             let tempStorage = VideoCacheStorage(maxCacheSize: 0)
             tempStorage.clearAll()
         }
