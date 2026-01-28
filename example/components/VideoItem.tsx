@@ -1,5 +1,5 @@
 import { useVideoPlayer, VideoSource, VideoView } from "expo-video";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Pressable, StyleSheet, useWindowDimensions } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
 
@@ -12,46 +12,50 @@ type Props = {
 export default function VideoItem({ source, isActive, height }: Props) {
   const [isMuted, setIsMuted] = useState(true);
   const { width } = useWindowDimensions();
-  const [isOffline, setIsOffline] = useState(false);
-  const player = useVideoPlayer(source, (player) => {
-    player.loop = true;
-    player.muted = isMuted;
-  });
-  const replacePlayer = () => {
-    player.replace(source);
-    if (isActive) player.play();
-  };
+  const wasOfflineRef = useRef(false);
+  const isActiveRef = useRef(isActive);
   useEffect(() => {
-    player.muted = isMuted;
-  }, [isMuted, player]);
-
-  useEffect(() => {
+    isActiveRef.current = isActive;
     if (isActive) {
       player.play();
     } else {
       player.pause();
     }
-  }, [isActive, player]);
+  }, [isActive]);
+
+  const player = useVideoPlayer(source, (player) => {
+    player.loop = true;
+    player.muted = isMuted;
+  });
 
   useEffect(() => {
+    player.muted = isMuted;
+  }, [isMuted, player]);
+  useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
-      const isConnected = state.isConnected ?? false;
-      if (isOffline && isConnected) {
-        console.log("Connection restored, replacing player...");
-        replacePlayer();
+      const isConnected = state.isConnected ?? true;
+      if (wasOfflineRef.current && isConnected) {
+        console.log("🛜 Connection restored, reloading player...");
+        player.replace(source);
+        if (isActiveRef.current) {
+          player.play();
+        }
       }
-
-      setIsOffline(!isConnected);
+      wasOfflineRef.current = !isConnected;
     });
     return () => unsubscribe();
-  }, [isOffline, isActive, player, source]);
+  }, [player, source]);
 
   return (
     <Pressable
       onPress={() => setIsMuted((m) => !m)}
       style={[styles.container, { height, width }]}
     >
-      <VideoView style={styles.video} player={player} />
+      <VideoView 
+        style={styles.video} 
+        player={player} 
+        nativeControls={false}
+      />
     </Pressable>
   );
 }

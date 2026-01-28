@@ -1,25 +1,44 @@
-# expo-video-cache
+# expo-video-cache – HLS video caching for Expo & React Native Apps
 
-A highly efficient, local proxy server for caching **HLS (HTTP Live Streaming)** video content on iOS.
+A high-performance, event-driven local proxy server for caching **HLS (HTTP Live Streaming)** video content on iOS.
 
-This module is designed to work as an add-on for [`expo-video`](https://docs.expo.dev/versions/latest/sdk/video/). While `expo-video` (and the underlying AVPlayer/ExoPlayer) handles standard `.mp4` caching and HLS caching in Android natively, iOS requires a local proxy to effectively cache HLS streams (`.m3u8`, `.ts`, `fMP4`) for offline playback.
+This module is a specialized add-on for [`expo-video`](https://docs.expo.dev/versions/latest/sdk/video/). While `expo-video` handles standard MP4 caching natively, it lacks a mechanism to cache complex HLS streams (`.m3u8`, `.ts`, `fMP4`) for offline playback on iOS.
 
-## ❓ Why use this?
+**expo-video-cache** solves this by running a lightweight, non-blocking local server that acts as a middleware between the internet and your video player.
 
-Starting with **Expo SDK 53**, the `expo-video` library introduced a native `useCaching` property.
+## 🔍 Overview: Expo HLS video caching for iOS & Android
 
-- ✅ **Native `expo-video` caching works great for:** Standard `.mp4` files and Android (ExoPlayer).
-- ❌ **It falls short on:** **HLS (.m3u8) on iOS**. AVPlayer does not natively support simple caching for HLS streams because they consist of hundreds of tiny `.ts` files and manifests.
+`expo-video-cache` gives you **HLS video caching for Expo + React Native** apps, with a focus on:
 
-**This library is specifically engineered to fill that gap.** It creates a local proxy to intercept the video stream, rewrite manifests on the fly, and ensure every segment watched is saved to disk for instant offline replay using a hybrid strategy (direct streaming plus background caching).
+- **Expo / React Native iOS HLS caching** for `.m3u8` streams.
+- **Offline playback** support for `expo-video` on iOS and React Native apps that stream HLS video.
+- **Vertical feeds (TikTok / Reels)** and infinite scroll timelines that aggressively prefetch videos.
+
+If you’re searching for **“how to cache HLS in expo-video on iOS”** or **“Expo HLS offline video caching”**, this library is designed specifically for that use case.
+
+## ❓ Why use expo-video-cache for HLS in Expo/React Native?
+
+- **You stream HLS (`.m3u8`) video in Expo / React Native** and want **offline HLS caching on iOS**, but `expo-video` only caches simple MP4s out of the box.
+- **You are building a vertical video feed (Reels / TikTok / Shorts)** in a React Native app and need a cache-aware proxy that throttles concurrent segment downloads to avoid **Socket Error 61** and connection failures.
+- **You want a drop-in helper for expo-video**, not a full custom player: keep using `VideoView` / `useVideoPlayer`, but plug in a smarter URL + caching layer.
+- **You care about disk usage and stability**: this library includes LRU pruning and file-descriptor–safe download logic tuned specifically for HLS segment storms.
+
+## ⚡️ Architecture & Performance
+
+Unlike basic caching solutions that download files sequentially, this library implements a robust **Event Loop Architecture** designed for high-throughput media streaming:
+
+1.  **Non-Blocking I/O:** Uses an event-driven network layer to handle simultaneous segment downloads without blocking the main thread or UI.
+2.  **Traffic Control (Semaphore Pattern):** Implements a strict concurrency limit (default: 32 active downloads) to prevent "Socket Error 61" and connection refusals during rapid seeking.
+3.  **Lazy Resource Allocation:** File handles are only opened when data actually arrives. This prevents **File Descriptor Exhaustion** (crashes caused by opening too many files at once) when queuing hundreds of HLS segments.
+4.  **Stream-While-Downloading:** The proxy pipes data to the player immediately while saving to disk in the background. If you watch it once, it is cached forever.
 
 ## 🚀 Features
 
-- **iOS HLS Support:** Caches complex HLS playlists, including standard MPEG-TS and modern Fragmented MP4 (fMP4) streams (Netflix/Disney+ style).
-- **Hybrid Caching Strategy:** Streams directly from the origin while asynchronously caching segments via the proxy. If you've watched it once, it's cached for instant replay.
-- **Offline Playback:** Automatically rewrites manifests to serve content from the local disk when offline.
-- **Smart Pruning:** Automatically manages disk space with a configurable max cache size (LRU strategy).
-- **Zero-Config Android:** On Android, this module acts as a pass-through, relying on the native player's built-in caching capabilities.
+- **iOS HLS Support:** Full support for HLS playlists, MPEG-TS chunks, and Fragmented MP4 (fMP4) streams.
+- **Offline Playback:** Rewrites manifests on-the-fly. If a segment exists on disk, the player gets the local path. If not, it proxies the network request.
+- **Instant Startup:** The server uses a "Wait-for-Ready" signal to ensure the socket is fully bound before returning a URL, eliminating race conditions on app launch.
+- **LRU Pruning:** Automatically manages disk usage. When the cache hits the limit (e.g., 1GB), it silently deletes the oldest files to make room for new content.
+- **Zero-Config Android:** On Android, this module acts as a pass-through, leveraging the native ExoPlayer's built-in caching engine.
 
 ## 📦 Installation
 
@@ -27,22 +46,15 @@ Starting with **Expo SDK 53**, the `expo-video` library introduced a native `use
 npx expo install expo-video-cache
 ```
 
-Alternative package managers:
+## 🛠 Quickstart: How to cache HLS video in Expo/React Native
 
-```bash
-# npm
-npm install expo-video-cache
+1. **Install the package**: `npx expo install expo-video-cache`.
+2. **Start the proxy server once** in your root component (e.g. `App.tsx`).
+3. **Convert HLS URLs with `convertUrl`** before passing them to `expo-video` so your HLS streams can be cached offline on iOS.
+4. **iOS**: use the converted proxy URL and disable native caching.  
+   **Android**: keep the original URL and enable native `useCaching`.
 
-# yarn
-yarn add expo-video-cache
-
-# pnpm
-pnpm add expo-video-cache
-```
-
-## 🛠 Usage
-
-This module works by spinning up a tiny local web server on your device. You must start the server once when your app launches, and then pass your video URLs through a converter function before giving them to the `<VideoView />`.
+The sections below use the example app to show a real-world vertical feed implementation using the public `expo-video-cache` API.
 
 ### 1. Import the module
 
@@ -50,157 +62,158 @@ This module works by spinning up a tiny local web server on your device. You mus
 import * as VideoCache from "expo-video-cache";
 ```
 
-### 2. Start the Server
+### 2. Start the server (App entry)
 
-Call this early in your app's lifecycle (e.g., in `app/_layout.tsx` or your root component).
-
-```typescript
-// Start server on port 9000 with a 1GB cache limit
-await VideoCache.startServer(9000, 1024 * 1024 * 1024);
-```
-
-### 3. Convert URLs
-
-Before passing a URL to your video player, convert it. If the server is running and caching is enabled, it returns a local `http://127.0.0.1...` URL. If the server is not running, it returns the original URL to prevent playback failures.
+Start the server once in your app's root component (e.g., `App.tsx`). The example app exposes this as a helper and waits for the native module to be ready before rendering the feed.
 
 ```typescript
-const originalUrl = "https://example.com/stream.m3u8";
-const sourceUrl = VideoCache.convertUrl(originalUrl);
-
-// Pass 'sourceUrl' to your player
-```
-
-### 4. Manage Cache
-
-You can clear the cache manually if needed (e.g., via a settings screen).
-
-```typescript
-await VideoCache.clearCache();
-```
-
-## 💡 Complete Example
-
-Here is how to integrate it with `expo-video`.
-
-```tsx
+// example/App.tsx – start expo-video-cache server for HLS caching
 import { useEffect, useState } from "react";
-import { View, Text, Platform, StyleSheet } from "react-native";
-import { VideoView, useVideoPlayer } from "expo-video";
+import { View, ActivityIndicator } from "react-native";
 import * as VideoCache from "expo-video-cache";
+import Stream from "./components/Stream";
 
-const STREAM_URL =
-  "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8";
+export default function App() {
+  const [isReady, setIsReady] = useState(false);
 
-export default function VideoScreen() {
-  const [isServerReady, setServerReady] = useState(false);
-
-  // 1. Initialize the Server (Best done in a root component or layout)
   useEffect(() => {
-    const bootstrap = async () => {
+    const init = async () => {
       try {
-        await VideoCache.startServer(9000, 1024 * 1024 * 1024); // Port 9000, 1GB Limit
-        setServerReady(true);
-      } catch (error) {
-        console.error("Failed to start cache server:", error);
+        // Start expo-video-cache server (HLS proxy) and wait until it's ready
+        await VideoCache.startServer(9000, 1024 * 1024 * 1024);
+        setIsReady(true);
+      } catch (e) {
+        console.error("Failed to start server", e);
+        // Even if it fails, we should probably let the app load (without caching)
+        setIsReady(true);
       }
     };
-    bootstrap();
+    init();
   }, []);
 
-  // 2. Prepare the Source
-  // - iOS: Convert URL to localhost. Disable native caching (Proxy handles it).
-  // - Android: Returns original URL. Enable native caching (ExoPlayer handles it).
-  const videoSource = {
-    uri: isServerReady ? VideoCache.convertUrl(STREAM_URL) : "",
-    useCaching: Platform.OS === "android",
-  };
-
-  const player = useVideoPlayer(
-    isServerReady ? videoSource : null,
-    (player) => {
-      player.loop = true;
-      player.play();
-    }
-  );
-
-  if (!isServerReady) {
+  if (!isReady) {
     return (
-      <View style={styles.center}>
-        <Text>Initializing Cache...</Text>
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" color="#000" />
       </View>
     );
   }
 
+  return <Stream />;
+}
+```
+
+### 3. Build sources with `convertUrl` (vertical feed)
+
+In the example `Stream` component, we keep raw HLS URLs as plain strings and only call `convertUrl` **after** the server has started. iOS uses the proxy URL, Android uses the original URL with native caching.
+
+```typescript
+// example/components/Stream.tsx – vertical HLS feed with offline caching in Expo/React Native
+import { clearVideoCacheAsync, VideoSource } from "expo-video";
+import { FlatList, Platform, StyleSheet, View } from "react-native";
+import * as VideoCache from "expo-video-cache";
+import VideoItem from "./VideoItem";
+
+const rawVideoData = [
+  { uri: "https://.../playlist1.m3u8" },
+  { uri: "https://.../playlist2.m3u8" },
+  // ...
+];
+
+export default function Stream() {
+  const videoSources = useMemo(
+    () =>
+      rawVideoData.map((item) => ({
+        // iOS: Use Proxy | Android: Use Native Cache
+        uri: VideoCache.convertUrl(item.uri),
+        useCaching: Platform.OS === "android",
+      })),
+    [],
+  );
+
+  // ... viewability + layout logic omitted for brevity ...
+
   return (
-    <View style={styles.container}>
-      <VideoView style={styles.video} player={player} allowsFullscreen />
+    <View style={styles.container} onLayout={onLayout}>
+      <FlatList
+        data={videoSources}
+        renderItem={({ item }) => (
+          <VideoItem
+            source={item}
+            isActive={activeViewableItem === getUriFromSource(item)}
+            height={listHeight}
+          />
+        )}
+        pagingEnabled
+        // other FlatList optimizations...
+      />
+      {/* Clear cache button calls clearVideoCacheAsync() + VideoCache.clearCache() */}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000", justifyContent: "center" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  video: { width: "100%", height: 300 },
-});
 ```
 
-## 🧩 Advanced Usage: Vertical Video Feed
+### 4. Render each video item with `expo-video`
 
-If you are building a vertical feed (like TikTok/Reels) using `FlatList`, you must be careful not to double-cache on iOS.
-
-**Key Pattern:**
-
-1. **iOS HLS:** Use `convertUrl()` AND set `useCaching: false` (since our proxy handles the cache).
-2. **Android:** Use raw URL AND set `useCaching: true` (let ExoPlayer handle it).
+Each item in the feed uses `useVideoPlayer` + `VideoView`, with simple mute-on-tap behavior and a small network-resilience helper.
 
 ```typescript
-const videoSource = {
-  uri: convertUrl(hlsUrl),
-  // ⚠️ Important: Disable native caching on iOS to avoid conflicts with the proxy
-  useCaching: Platform.OS === "android",
+// example/components/VideoItem.tsx
+import { useVideoPlayer, VideoSource, VideoView } from "expo-video";
+import React, { useEffect, useState, useRef } from "react";
+import { Pressable, StyleSheet, useWindowDimensions } from "react-native";
+
+type Props = {
+  source: VideoSource;
+  isActive: boolean;
+  height: number;
 };
+
+export default function VideoItem({ source, isActive, height }: Props) {
+  const [isMuted, setIsMuted] = useState(true);
+  const { width } = useWindowDimensions();
+
+  const player = useVideoPlayer(source, (player) => {
+    player.loop = true;
+    player.muted = isMuted;
+  });
+
+  useEffect(() => {
+    if (isActive) {
+      player.play();
+    } else {
+      player.pause();
+    }
+  }, [isActive]);
+
+  return (
+    <Pressable
+      onPress={() => setIsMuted((m) => !m)}
+      style={[styles.container, { height, width }]}
+    >
+      <VideoView style={styles.video} player={player} nativeControls={false} />
+    </Pressable>
+  );
+}
 ```
 
-## 📱 Platform Compatibility
+This trio (`App.tsx` + `Stream.tsx` + `VideoItem.tsx`) forms a complete, production-style vertical feed that uses **expo-video-cache** on iOS and **native ExoPlayer caching** on Android.
 
-| Platform    | Supported Formats      | Caching Strategy                                                                                                   |
-| :---------- | :--------------------- | :----------------------------------------------------------------------------------------------------------------- |
-| **iOS**     | HLS (.m3u8), fMP4, .ts | **Active Proxy + Hybrid Caching.** Uses a local server to intercept, rewrite manifests, stream from origin, and cache segments to disk. |
-| **Android** | All                    | **Passthrough.** Returns the original URL unaltered. `expo-video` (ExoPlayer) handles caching natively on Android. |
-| **Web**     | -                      | **Not Supported.** Returns original URL.                                                                           |
+### 📱 Platform Support
 
-## 🎯 Best Practices & Caveats
+| Platform | Cache Engine       | How it works                                                                                  |
+| -------- | ------------------ | --------------------------------------------------------------------------------------------- |
+| iOS      | expo-video-cache   | Starts a local GCDWebServer-style proxy. Intercepts traffic, rewrites manifests, and serves cached `.ts` chunks. |
+| Android  | Native (ExoPlayer) | The URL is passed through unchanged. ExoPlayer has excellent built-in LRU caching that requires no proxy.        |
+| Web      | Browser Cache      | Returns original URL. Relies on standard browser HTTP caching headers.                       |
 
-### 1. ❌ Do NOT use for large MP4/MOV files
+### ⚠️ Caveats & Best Practices
 
-This module is strictly optimized for **HLS Streaming (.m3u8)**.
+- **HLS only**: This library is strictly optimized for HLS (`.m3u8`).
+- **Avoid large MP4s**: Do not use this for large static MP4 files (e.g., 500MB movies). The overhead of the proxy provides no benefit over native caching for single large files.
+- **Lifecycle**: The server persists as long as the app is alive. You do not need to stop/start it between screens.
+- **DRM**: Encrypted streams (FairPlay) are currently not supported. The manifest rewriting process breaks the signature validation required for DRM.
 
-- **Why?** The proxy coordinates caching around HLS segments. For large monolithic MP4 files, it's better to rely on `expo-video`'s native caching instead of this proxy.
-- **HLS:** Segments are small (~2MB). Downloads are fast, and playback is smooth.
-- **MP4:** If you try to proxy a 500MB movie file through this server, the player may experience delays or black frames while data is being handled.
-- **Solution:** For standard MP4 files, use the original URL directly. `expo-video` handles MP4 caching natively.
-
-### 2. 🏁 Start the Server Once
-
-Call `VideoCache.startServer(...)` only once, preferably in your root `_layout.tsx` or `App.tsx`.
-
-- The module prevents multiple instances automatically, but calling it repeatedly is redundant.
-- The server keeps running in the background as long as the app is alive.
-
-### 3. 🤖 Android is Passthrough
-
-Remember that `VideoCache.convertUrl(url)` returns the **original** URL on Android.
-
-- Do not write logic that assumes a `127.0.0.1` address on Android.
-- This module relies on ExoPlayer's built-in caching on Android (which is excellent by default).
-
-## ⚠️ Limitations
-
-1. **Large Static Files:** As mentioned above, avoid using this for non-HLS files (MP4, MKV, MOV) larger than a few MBs to avoid blocking playback.
-2. **DRM Protected Content:** Encrypted streams (FairPlay) are **not supported**. Rewriting the manifest URLs usually breaks the digital signature verification required by DRM agents.
-3. **Live Streams:** Caching is technically supported for Live HLS, but it is recommended strictly for **VOD (Video on Demand)**. Live streams can generate infinite segments, filling up the cache limit quickly and triggering aggressive pruning.
-
-## 📄 License
+### 📄 License
 
 MIT
