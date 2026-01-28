@@ -1,6 +1,6 @@
 {
   "name": "expo-video-cache",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "High-performance video caching for expo-video, react-native-video and React Native. Features a local proxy for instant HLS (.m3u8), offline support, prefetching, and advanced cache management.",
   "main": "build/index.js",
   "types": "build/index.d.ts",
