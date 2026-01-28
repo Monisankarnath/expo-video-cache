@@ -1,104 +1,76 @@
 import ExpoModulesCore
+import Foundation
 
-/// A module that manages a local proxy server to cache video assets.
-///
-/// This module acts as a bridge between the React Native JavaScript layer and the
-/// native `VideoProxyServer`. It handles the lifecycle of the local server, URL rewriting,
-/// and cache management.
-public class ExpoVideoCacheModule: Module {
-  
-  private var proxyServer: VideoProxyServer?
-  
-  /// The port currently being used by the proxy server.
-  ///
-  /// Defaults to `9000` to ensure `convertUrl` returns a valid localhost string
-  /// even if called before `startServer` has fully completed its asynchronous bootstrap.
-  private var activePort: Int = 9000
+/// Exposes the native video caching proxy functionality to the JavaScript layer.
+public final class ExpoVideoCacheModule: Module {
+    
+    // MARK: - Properties
+    
+    private var proxyServer: VideoProxyServer?
+    private var activePort: Int = 9000
+    
+    // MARK: - Definition
+    
+    public func definition() -> ModuleDefinition {
+        Name("ExpoVideoCache")
 
-  public func definition() -> ModuleDefinition {
-    Name("ExpoVideoCache")
-
-    /// Initializes and starts the local proxy server.
-    ///
-    /// If a server is already running on the requested port, this operation is idempotent.
-    /// If the requested port differs from the running port, an error is thrown to prevent
-    /// state inconsistency requiring a reload.
-    ///
-    /// - Parameters:
-    ///   - port: The specific port to bind to. Defaults to `9000`.
-    ///   - maxCacheSize: The maximum disk usage in bytes. Defaults to `1GB`.
-    AsyncFunction("startServer") { (port: Int?, maxCacheSize: Int?) in
-      let safeMaxCacheSize = maxCacheSize ?? 1_073_741_824 // 1GB Default
-      let targetPort = port ?? 9000
-      
-      if let currentServer = self.proxyServer, currentServer.isRunning {
-          if self.activePort == targetPort {
-              print("✅ ExpoVideoCache: Server already active on port \(targetPort)")
-              return
-          } else {
-              throw NSError(
-                  domain: "ExpoVideoCache",
-                  code: 409,
-                  userInfo: [NSLocalizedDescriptionKey: "Server is already running on port \(self.activePort). You must reload the app to change ports."]
-              )
-          }
-      }
-      
-      let newServer = VideoProxyServer(port: targetPort, maxCacheSize: safeMaxCacheSize)
-      
-      do {
-          try newServer.start()
-          
-          self.proxyServer = newServer
-          self.activePort = targetPort
-          print("✅ ExpoVideoCache: Server started on port \(targetPort)")
-          
-      } catch {
-          print("❌ ExpoVideoCache: Port \(targetPort) is busy.")
-          throw NSError(
-              domain: "ExpoVideoCache",
-              code: 500,
-              userInfo: [NSLocalizedDescriptionKey: "Port \(targetPort) is already in use. Please choose a different port."]
-          )
-      }
-    }
-
-    /// Rewrites a remote URL to point to the local proxy server.
-    ///
-    /// - Parameters:
-    ///   - url: The original remote URL string.
-    ///   - isCacheable: Optional flag to bypass the proxy. Defaults to `true`.
-    /// - Returns: A `localhost` URL pointing to the proxy, or the original URL if caching is disabled or server is not running.
-    Function("convertUrl") { (url: String, isCacheable: Bool?) -> String in
-        let shouldCache = isCacheable ?? true
+        // MARK: - API Methods
         
-        if !shouldCache {
-            return url
+        /// Initializes and starts the TCP proxy server on a background thread.
+        ///
+        /// - Parameters:
+        ///   - port: The local port to listen on. Defaults to `9000`.
+        ///   - maxCacheSize: The maximum disk cache size in bytes. Defaults to `1GB`.
+        /// - Throws: An error if the server is already running on a different port or if the port bind fails.
+        AsyncFunction("startServer") { (port: Int?, maxCacheSize: Int?) in
+            let cacheLimit = maxCacheSize ?? 1_073_741_824 // Default: 1GB
+            let targetPort = port ?? 9000
+            
+            if let currentServer = self.proxyServer, currentServer.isRunning {
+                if self.activePort == targetPort { return }
+                throw NSError(domain: "ExpoVideoCache", code: 409, userInfo: [NSLocalizedDescriptionKey: "Server active on \(self.activePort). Reload required."])
+            }
+            
+            let newServer = VideoProxyServer(port: targetPort, maxCacheSize: cacheLimit)
+            
+            do {
+                try newServer.start()
+                self.proxyServer = newServer
+                self.activePort = targetPort
+            } catch {
+                throw NSError(domain: "ExpoVideoCache", code: 500, userInfo: [NSLocalizedDescriptionKey: "Port bind failed: \(error.localizedDescription)"])
+            }
         }
-        
-        guard let server = self.proxyServer, server.isRunning else {
-            print("⚠️ ExpoVideoCache: Server not running. Returning original URL: \(url)")
-            return url
-        }
-        
-        guard let encodedUrl = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
-            return url
-        }
-        
-        return "http://127.0.0.1:\(self.activePort)/proxy?url=\(encodedUrl)"
-    }
 
-    /// Clears all cached video files from disk.
-    ///
-    /// If the server is not currently running, a temporary storage instance is created
-    /// to locate and purge the cache directory.
-    AsyncFunction("clearCache") {
-        if let server = self.proxyServer {
-            server.clearCache()
-        } else {
-            let tempStorage = VideoCacheStorage(maxCacheSize: 0)
-            tempStorage.clearAll()
+        /// Synchronously converts a remote URL into a local proxy URL.
+        ///
+        /// - Parameters:
+        ///   - url: The remote URL string (e.g., `https://cdn.com/video.m3u8`).
+        ///   - isCacheable: A boolean flag to bypass caching if needed. Defaults to `true`.
+        /// - Returns: A local `http://127.0.0.1...` URL string, or the original URL if encoding fails or caching is disabled.
+        Function("convertUrl") { (url: String, isCacheable: Bool?) -> String in
+            if isCacheable == false { return url }
+            
+            guard let server = self.proxyServer, server.isRunning else {
+                return url
+            }
+            
+            guard let encodedUrl = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+                return url
+            }
+            
+            return "http://127.0.0.1:\(self.activePort)/proxy?url=\(encodedUrl)"
+        }
+
+        /// Purges the disk cache directory.
+        ///
+        /// This method removes all cached video files immediately. It can be called even if the server is not running.
+        AsyncFunction("clearCache") {
+            if let server = self.proxyServer {
+                server.clearCache()
+            } else {
+                VideoCacheStorage(maxCacheSize: 0).clearAll()
+            }
         }
     }
-  }
 }

@@ -49,7 +49,7 @@ export default function Stream() {
   }, []);
 
   const [activeViewableItem, setActiveViewableItem] = useState<string | null>(
-    getUriFromSource(videoSources[0])
+    getUriFromSource(videoSources[0]),
   );
 
   // Viewability Config for TikTok-style snapping
@@ -110,9 +110,9 @@ export default function Stream() {
           keyExtractor={(item) => getUriFromSource(item) ?? ""}
           pagingEnabled
           removeClippedSubviews={Platform.OS === "ios"} // Safer to disable on Android if seeing black screens
-          windowSize={5} // Optimization: Keep 5 screens worth of content
+          windowSize={3} // Optimization: Render 3 items at a time
           initialNumToRender={1}
-          maxToRenderPerBatch={3}
+          maxToRenderPerBatch={2}
           viewabilityConfigCallbackPairs={
             viewabilityConfigCallbackPairs.current
           }

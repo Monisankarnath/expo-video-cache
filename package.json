@@ -1,7 +1,7 @@
 {
   "name": "expo-video-cache",
   "version": "1.1.0",
-  "description": "IOS HLS cache with expo-video",
+  "description": "High-performance video caching for expo-video, react-native-video and React Native. Features a local proxy for instant HLS (.m3u8), offline support, prefetching, and advanced cache management.",
   "main": "build/index.js",
   "types": "build/index.d.ts",
   "scripts": {
@@ -16,14 +16,29 @@
     "open:android": "open -a \"Android Studio\" example/android"
   },
   "keywords": [
-    "react-native",
     "expo",
-    "hls",
+    "react-native",
     "expo-video",
-    "react-native-video",
     "expo-av",
     "expo-video-cache",
-    "ExpoVideoCache"
+    "video-cache",
+    "media-cache",
+    "caching",
+    "cache",
+    "proxy",
+    "local-server",
+    "offline-video",
+    "offline",
+    "hls",
+    "m3u8",
+    "mp4",
+    "streaming",
+    "prefetch",
+    "preload",
+    "performance",
+    "avplayer",
+    "react-native-video",
+    "expo-module"
   ],
   "repository": "https://github.com/Monisankarnath/expo-video-cache",
   "bugs": {
