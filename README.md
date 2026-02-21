@@ -81,7 +81,7 @@ export default function App() {
     const init = async () => {
       try {
         // Start expo-video-cache server (HLS proxy) and wait until it's ready
-        // headOnlyCache: true → only cache first ~5-10s of each video (ideal for vertical feeds)
+        // headOnlyCache: true → only cache first ~10-15s of each video (ideal for vertical feeds)
         await VideoCache.startServer(9000, 1024 * 1024 * 1024, true);
         setIsReady(true);
       } catch (e) {
