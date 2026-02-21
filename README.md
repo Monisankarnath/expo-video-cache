@@ -36,6 +36,7 @@ Unlike basic caching solutions that download files sequentially, this library im
 
 - **iOS HLS Support:** Full support for HLS playlists, MPEG-TS chunks, and Fragmented MP4 (fMP4) streams.
 - **Offline Playback:** Rewrites manifests on-the-fly. If a segment exists on disk, the player gets the local path. If not, it proxies the network request.
+- **Head-Only Smart Caching:** Optional mode that only caches the first few segments (~10-15 seconds) of each video. Segments beyond the limit are streamed directly from the CDN. Dramatically reduces disk usage in scroll-heavy vertical feeds where users swipe past most videos in seconds. Enable by passing `headOnlyCache: true` to `startServer()`.
 - **Instant Startup:** The server uses a "Wait-for-Ready" signal to ensure the socket is fully bound before returning a URL, eliminating race conditions on app launch.
 - **LRU Pruning:** Automatically manages disk usage. When the cache hits the limit (e.g., 1GB), it silently deletes the oldest files to make room for new content.
 - **Zero-Config Android:** On Android, this module acts as a pass-through, leveraging the native ExoPlayer's built-in caching engine.
@@ -49,7 +50,7 @@ npx expo install expo-video-cache
 ## 🛠 Quickstart: How to cache HLS video in Expo/React Native
 
 1. **Install the package**: `npx expo install expo-video-cache`.
-2. **Start the proxy server once** in your root component (e.g. `App.tsx`).
+2. **Start the proxy server once** in your root component (e.g. `App.tsx`). Pass `headOnlyCache: true` for vertical feeds to only cache the first few segments of each video.
 3. **Convert HLS URLs with `convertUrl`** before passing them to `expo-video` so your HLS streams can be cached offline on iOS.
 4. **iOS**: use the converted proxy URL and disable native caching.  
    **Android**: keep the original URL and enable native `useCaching`.
@@ -80,7 +81,8 @@ export default function App() {
     const init = async () => {
       try {
         // Start expo-video-cache server (HLS proxy) and wait until it's ready
-        await VideoCache.startServer(9000, 1024 * 1024 * 1024);
+        // headOnlyCache: true → only cache first ~5-10s of each video (ideal for vertical feeds)
+        await VideoCache.startServer(9000, 1024 * 1024 * 1024, true);
         setIsReady(true);
       } catch (e) {
         console.error("Failed to start server", e);
@@ -201,11 +203,41 @@ This trio (`App.tsx` + `Stream.tsx` + `VideoItem.tsx`) forms a complete, product
 
 ### 📱 Platform Support
 
-| Platform | Cache Engine       | How it works                                                                                  |
-| -------- | ------------------ | --------------------------------------------------------------------------------------------- |
+| Platform | Cache Engine       | How it works                                                                                                     |
+| -------- | ------------------ | ---------------------------------------------------------------------------------------------------------------- |
 | iOS      | expo-video-cache   | Starts a local GCDWebServer-style proxy. Intercepts traffic, rewrites manifests, and serves cached `.ts` chunks. |
 | Android  | Native (ExoPlayer) | The URL is passed through unchanged. ExoPlayer has excellent built-in LRU caching that requires no proxy.        |
-| Web      | Browser Cache      | Returns original URL. Relies on standard browser HTTP caching headers.                       |
+| Web      | Browser Cache      | Returns original URL. Relies on standard browser HTTP caching headers.                                           |
+
+### 🧠 Head-Only Smart Caching
+
+In a vertical feed (Reels / TikTok / Shorts), most users swipe past a video within a few seconds. By default, the proxy caches every segment the player requests. With **Head-Only mode**, only the first few segments (~10-15 seconds) are cached to disk. Segments beyond the limit are streamed directly from the CDN without caching.
+
+**How it works:**
+
+- When `headOnlyCache` is `true`, the proxy rewrites the first N segment URLs in the media playlist to route through the proxy (cached to disk + served to player).
+- All remaining segment URLs are rewritten to point directly to the CDN (streamed live, not cached).
+- On replay, the first few seconds play instantly from the local cache, then playback seamlessly transitions to streaming the rest directly from the CDN -- no interruption, no buffering gap.
+- Master playlists and sub-playlists are always fully cached regardless of this setting.
+
+**When to use it:**
+
+- Vertical video feeds where users scroll quickly and rarely rewatch entire videos.
+- Apps with limited device storage where you want to minimize disk usage.
+- Feeds that prefetch multiple videos simultaneously.
+
+**When NOT to use it:**
+
+- Long-form content (courses, movies) where users watch the full video.
+- Scenarios where full offline replay is required.
+
+```typescript
+// Enable head-only caching for a vertical feed
+await VideoCache.startServer(9000, 1024 * 1024 * 1024, true);
+
+// Disable head-only caching for full-video caching (default)
+await VideoCache.startServer(9000, 1024 * 1024 * 1024, false);
+```
 
 ### ⚠️ Caveats & Best Practices
 
