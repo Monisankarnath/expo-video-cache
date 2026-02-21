@@ -28,8 +28,9 @@ class ExpoVideoCacheModule : Module() {
      * - Parameters:
      * - port: The port number (Ignored on Android).
      * - maxCacheSize: The maximum cache size in bytes (Ignored on Android).
+     * - headOnlyCache: Whether to cache only the first few segments (Ignored on Android).
      */
-    AsyncFunction("startServer") { port: Int?, maxCacheSize: Int? ->
+    AsyncFunction("startServer") { port: Int?, maxCacheSize: Int?, headOnlyCache: Boolean? ->
       Log.d("ExpoVideoCache", "Android uses native caching strategies; arguments ignored.")
     }
 

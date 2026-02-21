@@ -38,6 +38,7 @@ internal final class DataSource: NetworkDownloaderDelegate {
     private var networkTask: NetworkTask?
     private var fileHandle: FileHandle?
     private var isManifest: Bool
+    private let segmentLimit: Int
     
     /// Generates a unique key for the file on disk.
     ///
@@ -59,11 +60,13 @@ internal final class DataSource: NetworkDownloaderDelegate {
     ///   - url: The target URL.
     ///   - range: The requested byte range (optional).
     ///   - port: The local proxy port (used for manifest rewriting).
-    init(storage: VideoCacheStorage, url: URL, range: Range<Int>?, port: Int) {
+    ///   - segmentLimit: The number of initial segments to cache.
+    init(storage: VideoCacheStorage, url: URL, range: Range<Int>?, port: Int, segmentLimit: Int) {
         self.storage = storage
         self.url = url
         self.range = range
         self.port = port
+        self.segmentLimit = segmentLimit
         
         let urlString = url.absoluteString.lowercased()
         self.isManifest = url.pathExtension.lowercased().contains("m3u8") || urlString.contains(".m3u8")
@@ -227,6 +230,9 @@ internal final class DataSource: NetworkDownloaderDelegate {
     private func rewriteManifest(_ content: String, originalUrl: URL) -> String {
         let lines = content.components(separatedBy: .newlines)
         var rewritten: [String] = []
+        var segmentCount = 0
+        
+        let isMasterPlaylist = content.contains("#EXT-X-STREAM-INF")
         
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -244,18 +250,32 @@ internal final class DataSource: NetworkDownloaderDelegate {
                 continue
             }
             
-            rewritten.append(rewriteLine(line: line, originalUrl: originalUrl))
+            if isMasterPlaylist {
+                rewritten.append(rewriteLineToProxy(line: line, originalUrl: originalUrl))
+            } else {
+                if segmentLimit == 0 || segmentCount < segmentLimit {
+                    rewritten.append(rewriteLineToProxy(line: line, originalUrl: originalUrl))
+                } else {
+                    rewritten.append(rewriteLineToDirect(line: line, originalUrl: originalUrl))
+                }
+                segmentCount += 1
+            }
         }
         return rewritten.joined(separator: "\n")
     }
     
-    private func rewriteLine(line: String, originalUrl: URL) -> String {
+    private func rewriteLineToProxy(line: String, originalUrl: URL) -> String {
         if line.hasPrefix("#") { return line }
         
         let absolute = URL(string: line, relativeTo: originalUrl)?.absoluteString ?? line
         guard let encoded = absolute.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return line }
         
         return "http://127.0.0.1:\(port)/proxy?url=\(encoded)"
+    }
+
+    private func rewriteLineToDirect(line: String, originalUrl: URL) -> String {
+        if line.hasPrefix("#") { return line }
+        return URL(string: line, relativeTo: originalUrl)?.absoluteString ?? line
     }
     
     private func rewriteHlsTag(line: String, originalUrl: URL) -> String {
@@ -269,7 +289,7 @@ internal final class DataSource: NetworkDownloaderDelegate {
             let uriPart = String(rest[..<quoteIndex])
             let suffix = String(rest[rest.index(after: quoteIndex)...])
             
-            let newUri = rewriteLine(line: uriPart, originalUrl: originalUrl)
+            let newUri = rewriteLineToProxy(line: uriPart, originalUrl: originalUrl)
             return "\(prefix)URI=\"\(newUri)\"\(suffix)"
         }
         return line

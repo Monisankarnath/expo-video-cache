@@ -38,6 +38,12 @@ internal final class VideoProxyServer: ProxyConnectionDelegate {
     
     /// A mutual exclusion lock used to protect all shared mutable state.
     private let serverLock = NSLock()
+
+    /// If true, only the first few segments of each video are cached.
+    private let headOnlyCache: Bool
+
+    // Internal constant: How many segments to cache when headOnlyCache is true.
+    private let HEAD_SEGMENT_LIMIT = 3
     
     /// Indicates whether the server is currently running.
     ///
@@ -53,9 +59,11 @@ internal final class VideoProxyServer: ProxyConnectionDelegate {
     /// - Parameters:
     ///   - port: The local TCP port to bind the listener to.
     ///   - maxCacheSize: The maximum allowed size of the disk cache, in bytes.
-    init(port: Int, maxCacheSize: Int) {
+    ///   - headOnlyCache: If true, only the first few segments of each video are cached.
+    init(port: Int, maxCacheSize: Int, headOnlyCache: Bool = false) {
         self.port = port
         self.storage = VideoCacheStorage(maxCacheSize: maxCacheSize)
+        self.headOnlyCache = headOnlyCache
     }
     
     /// Starts the TCP server and begins accepting incoming connections.
@@ -134,10 +142,13 @@ internal final class VideoProxyServer: ProxyConnectionDelegate {
     ///
     /// - Parameter connection: The incoming TCP connection.
     private func handleNewConnection(_ connection: NWConnection) {
+        let limit = headOnlyCache ? HEAD_SEGMENT_LIMIT : 0
+
         let handler = ClientConnectionHandler(
             connection: connection,
             storage: storage,
-            port: port
+            port: port,
+            initialSegmentsToCache: limit
         )
         
         handler.delegate = self
