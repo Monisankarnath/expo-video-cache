@@ -8,7 +8,7 @@ import ExpoVideoCacheModule from "../../src/ExpoVideoCacheModule";
  */
 export function startServer(port?: number): Promise<void> {
   let maxCacheSize = 1024 * 1024 * 1024;
-  return ExpoVideoCacheModule.startServer(port, maxCacheSize);
+  return ExpoVideoCacheModule.startServer(port, maxCacheSize, true);
 }
 
 /**

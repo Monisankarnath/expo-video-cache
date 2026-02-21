@@ -31,6 +31,11 @@ internal final class ClientConnectionHandler: DataSourceDelegate {
     /// Buffer to accumulate incoming raw HTTP request bytes.
     private var buffer = Data()
 
+    /// Initial segments to cache.
+    /// If 0, all segments are cached.
+    /// If positive, only the first N segments are cached.
+    private let segmentLimit: Int
+
     // MARK: - Initialization
 
     /// Initializes a new connection handler.
@@ -39,10 +44,12 @@ internal final class ClientConnectionHandler: DataSourceDelegate {
     ///   - connection: The accepted TCP connection.
     ///   - storage: The shared cache storage manager.
     ///   - port: The port number of the proxy server.
-    init(connection: NWConnection, storage: VideoCacheStorage, port: Int) {
+    ///   - initialSegmentsToCache: The number of initial segments to cache.
+    init(connection: NWConnection, storage: VideoCacheStorage, port: Int, initialSegmentsToCache: Int) {
         self.connection = connection
         self.storage = storage
         self.port = port
+        self.segmentLimit = initialSegmentsToCache
     }
 
     // MARK: - Lifecycle Methods
@@ -135,7 +142,13 @@ internal final class ClientConnectionHandler: DataSourceDelegate {
             }
         }
 
-        dataSource = DataSource(storage: storage, url: url, range: byteRange, port: port)
+        dataSource = DataSource(
+            storage: storage, 
+            url: url, 
+            range: byteRange, 
+            port: port, 
+            segmentLimit: segmentLimit
+        )
         dataSource?.delegate = self
         dataSource?.start()
     }

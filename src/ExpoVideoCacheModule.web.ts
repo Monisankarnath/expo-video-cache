@@ -20,8 +20,9 @@ class ExpoVideoCacheModule extends NativeModule {
    * - Parameters:
    * - port: Ignored on Web.
    * - maxCacheSize: Ignored on Web.
+   * - headOnlyCache: Ignored on Web.
    */
-  async startServer(port?: number, maxCacheSize?: number): Promise<void> {
+  async startServer(port?: number, maxCacheSize?: number, headOnlyCache?: boolean): Promise<void> {
     console.warn(
       "ExpoVideoCache: Local proxy server is not supported on Web. Videos will stream directly."
     );

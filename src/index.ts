@@ -12,13 +12,15 @@ import ExpoVideoCacheModule from "./ExpoVideoCacheModule";
  *
  * @param port - (Optional) The local port to bind. Defaults to `9000`.
  * @param maxCacheSize - (Optional) The maximum size of the disk cache in bytes. Defaults to `1GB`.
+ * @param headOnlyCache - (Optional) If true, only the first few segments (~5-10s) of each video are cached. Reduces disk usage for scroll-heavy feeds. Defaults to `false`. iOS only.
  * @returns A promise that resolves when the server is ready (or immediately on non-iOS platforms).
  */
 export function startServer(
   port?: number,
-  maxCacheSize?: number
+  maxCacheSize?: number,
+  headOnlyCache?: boolean
 ): Promise<void> {
-  return ExpoVideoCacheModule.startServer(port, maxCacheSize);
+  return ExpoVideoCacheModule.startServer(port, maxCacheSize, headOnlyCache);
 }
 
 /**

@@ -22,7 +22,7 @@ public final class ExpoVideoCacheModule: Module {
         ///   - port: The local port to listen on. Defaults to `9000`.
         ///   - maxCacheSize: The maximum disk cache size in bytes. Defaults to `1GB`.
         /// - Throws: An error if the server is already running on a different port or if the port bind fails.
-        AsyncFunction("startServer") { (port: Int?, maxCacheSize: Int?) in
+        AsyncFunction("startServer") { (port: Int?, maxCacheSize: Int?, headOnlyCache: Bool?) in
             let cacheLimit = maxCacheSize ?? 1_073_741_824 // Default: 1GB
             let targetPort = port ?? 9000
             
@@ -31,7 +31,7 @@ public final class ExpoVideoCacheModule: Module {
                 throw NSError(domain: "ExpoVideoCache", code: 409, userInfo: [NSLocalizedDescriptionKey: "Server active on \(self.activePort). Reload required."])
             }
             
-            let newServer = VideoProxyServer(port: targetPort, maxCacheSize: cacheLimit)
+            let newServer = VideoProxyServer(port: targetPort, maxCacheSize: cacheLimit, headOnlyCache: headOnlyCache ?? false)
             
             do {
                 try newServer.start()
